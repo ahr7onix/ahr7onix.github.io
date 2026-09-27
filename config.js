@@ -31,6 +31,7 @@ window.PROFILE = {
     playlist: [
       { youtube: "-Q8rb4OGHak", title: "BLUE LOCK: BIG BANG DRIVE (Thesius Remix)", artist: "THESIUS MUSICAL", bpm: 140 },
       { youtube: "m4NMSr837Y0", title: "Nightcore - Doktorspiele", artist: "Maikel6311's Nightcore", bpm: 150 },
+      { youtube: "lWuxtLzMcjE", title: "Itoshi Sae vs Everyone Theme (Cover)", artist: "Hamon Music", bpm: 130 },
     ],
     // reserva, se nenhum vídeo carregar
     src: "assets/music.mp3",
