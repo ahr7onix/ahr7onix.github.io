@@ -33,6 +33,7 @@ window.PROFILE = {
       { youtube: "m4NMSr837Y0", title: "Nightcore - Doktorspiele", artist: "Maikel6311's Nightcore", bpm: 150 },
       { youtube: "lWuxtLzMcjE", title: "Itoshi Sae vs Everyone Theme (Cover)", artist: "Hamon Music", bpm: 130 },
       { youtube: "6ldn3K0JcLg", title: "Undertale - Tears in the Rain", artist: "Dreamer 6093", bpm: 80 },
+      { youtube: "bHipLaO5R78", title: "But his hate didn't let him go [2]", artist: "Victor's Studio", bpm: 90 },
     ],
     // reserva, se nenhum vídeo carregar
     src: "assets/music.mp3",
