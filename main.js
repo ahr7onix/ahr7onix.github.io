@@ -3,6 +3,8 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { STLLoader } from "three/addons/loaders/STLLoader.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 const P = window.PROFILE;
 const $ = (id) => document.getElementById(id);
@@ -435,445 +437,337 @@ function drawViz(bins) {
    ============================================================ */
 const canvas = $("bg");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x05030a, 0.008);
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 200);
 camera.position.set(0, 0, 9);
 
 const cA = new THREE.Color(P.accent), cB = new THREE.Color(P.accent2);
-const dotTex = (() => {
-  const c = document.createElement("canvas"); c.width = c.height = 64;
-  const g = c.getContext("2d"), grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grd.addColorStop(0, "rgba(255,255,255,1)"); grd.addColorStop(0.4, "rgba(255,255,255,.5)"); grd.addColorStop(1, "rgba(255,255,255,0)");
-  g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
-  return new THREE.CanvasTexture(c);
-})();
 
-// ============ BURACO NEGRO ============
-const bhUniforms = { uTime: { value: 0 }, uAudio: { value: 0 }, uA: { value: cA } };
-
-// Função de "plasma" girando, compartilhada pelo disco e pela lente
-const swirlGLSL = /* glsl */ `
-  uniform float uTime; uniform float uAudio; uniform vec3 uA;
-  float swirl(float r, float a) {
-    float t = uTime * (1.0 + uAudio * 1.5);
-    float n = sin(a * 6.0 + log(r) * 14.0 - t * 4.0 / r) * sin(a * 11.0 - log(r) * 9.0 - t * 6.0 / r);
-    n += 0.5 * sin(r * 22.0 - t * 3.0);
-    return 0.55 + 0.45 * n;
-  }
-  vec3 heat(float h) {
-    vec3 hot = vec3(1.0, 0.92, 0.75);
-    vec3 mid = mix(uA, vec3(1.0, 0.55, 0.15), 0.5);
-    vec3 cold = uA * 0.35;
-    return h > 0.5 ? mix(mid, hot, (h - 0.5) * 2.0) : mix(cold, mid, h * 2.0);
-  }
-`;
-const vPass = /* glsl */ `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`;
-
-const bh = new THREE.Group();          // tudo que gira junto com o disco
-bh.rotation.set(0.38, 0, -0.2);
-const bhRoot = new THREE.Group();      // posição geral
-bhRoot.add(bh);
-scene.add(bhRoot);
-
-// Horizonte de eventos
-const horizon = new THREE.Mesh(new THREE.SphereGeometry(1.2, 64, 64), new THREE.MeshBasicMaterial({ color: 0x000000, fog: false }));
-bhRoot.add(horizon);
-
-// Disco de acreção
-const INNER = 1.5, OUTER = 5.8;
-const disk = new THREE.Mesh(
-  new THREE.RingGeometry(INNER, OUTER, 256, 16),
-  new THREE.ShaderMaterial({
-    uniforms: bhUniforms, vertexShader: vPass,
-    fragmentShader: swirlGLSL + /* glsl */ `
-      varying vec2 vP;
-      void main() {
-        float r = length(vP), a = atan(vP.y, vP.x);
-        float k = 1.0 - (r - ${INNER.toFixed(1)}) / ${(OUTER - INNER).toFixed(1)};
-        float I = pow(k, 2.4) * smoothstep(${INNER.toFixed(1)}, ${(INNER + 0.25).toFixed(2)}, r);
-        I *= swirl(r, a);
-        I *= 1.0 + 0.7 * cos(a);                 // efeito Doppler: um lado mais brilhante
-        I *= 1.1 + uAudio * 1.2;
-        gl_FragColor = vec4(heat(pow(k, 1.5)) * I * 0.9, 1.0);
-      }`,
-    transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
-  })
-);
-disk.rotation.x = -Math.PI / 2;
-bh.add(disk);
-
-// Lente gravitacional: o disco "dobrando" por cima e por baixo do buraco (sempre virado pra câmera)
-const lens = new THREE.Mesh(
-  new THREE.RingGeometry(1.26, 3.0, 256, 8),
-  new THREE.ShaderMaterial({
-    uniforms: bhUniforms, vertexShader: vPass,
-    fragmentShader: swirlGLSL + /* glsl */ `
-      varying vec2 vP;
-      void main() {
-        float r = length(vP), a = atan(vP.y, vP.x);
-        float k = 1.0 - (r - 1.26) / 1.74;
-        float I = pow(k, 4.0) * swirl(r * 1.7, a * 0.5 + 1.0);
-        I *= 0.55 + 0.45 * sin(a);                 // arco de cima mais forte
-        I *= 1.0 + uAudio;
-        gl_FragColor = vec4(heat(0.3 + k * 0.5) * I * 0.6, 1.0);
-      }`,
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-  })
-);
-bhRoot.add(lens);
-
-// Anel de fótons: fio de luz colado no horizonte
-const photon = new THREE.Mesh(
-  new THREE.RingGeometry(1.2, 1.3, 256),
-  new THREE.ShaderMaterial({
-    uniforms: bhUniforms, vertexShader: vPass,
-    fragmentShader: /* glsl */ `
-      uniform float uAudio; uniform vec3 uA; varying vec2 vP;
-      void main() {
-        float r = length(vP);
-        float I = 1.0 - abs(r - 1.235) / 0.065;
-        I = pow(max(I, 0.0), 2.0) * (1.0 + uAudio * 1.5);
-        gl_FragColor = vec4(mix(uA, vec3(1.0, 0.95, 0.85), 0.7) * I, 1.0);
-      }`,
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-  })
-);
-bhRoot.add(photon);
-
-// Matéria sendo sugada em espiral
-const INFALL = 3000;
-const inf = { r: new Float32Array(INFALL), a: new Float32Array(INFALL), y: new Float32Array(INFALL) };
-const infPos = new Float32Array(INFALL * 3), infCol = new Float32Array(INFALL * 3);
-const hotC = new THREE.Color(1, 0.9, 0.7), tmpC = new THREE.Color();
-function spawn(i, anywhere) {
-  inf.r[i] = anywhere ? 1.4 + Math.random() * 9 : 7 + Math.random() * 4;
-  inf.a[i] = Math.random() * Math.PI * 2;
-  inf.y[i] = (Math.random() - 0.5) * 0.25 * inf.r[i] * 0.3;
-}
-for (let i = 0; i < INFALL; i++) spawn(i, true);
-const infGeo = new THREE.BufferGeometry();
-infGeo.setAttribute("position", new THREE.BufferAttribute(infPos, 3));
-infGeo.setAttribute("color", new THREE.BufferAttribute(infCol, 3));
-const infall = new THREE.Points(infGeo, new THREE.PointsMaterial({
-  size: 0.09, map: dotTex, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-}));
-bh.add(infall);
-
-function updateInfall(dt, energy) {
-  const speed = 1 + energy * 2;
-  for (let i = 0; i < INFALL; i++) {
-    const r = inf.r[i];
-    inf.a[i] += (2.2 / Math.pow(r, 1.5)) * dt * speed;
-    inf.r[i] -= (0.35 / Math.sqrt(r)) * dt * speed;
-    inf.y[i] *= 0.995;
-    if (inf.r[i] < 1.35) spawn(i, false);
-    const rr = inf.r[i];
-    infPos[i * 3] = Math.cos(inf.a[i]) * rr;
-    infPos[i * 3 + 1] = inf.y[i];
-    infPos[i * 3 + 2] = Math.sin(inf.a[i]) * rr;
-    const h = Math.max(0, 1 - (rr - 1.35) / 8);
-    tmpC.copy(cB).lerp(cA, Math.min(1, h * 1.6)).lerp(hotC, h * h);
-    const fade = Math.min(1, (rr - 1.35) * 2) * (0.15 + h * 0.6);
-    infCol[i * 3] = tmpC.r * fade; infCol[i * 3 + 1] = tmpC.g * fade; infCol[i * 3 + 2] = tmpC.b * fade;
-  }
-  infGeo.attributes.position.needsUpdate = true;
-  infGeo.attributes.color.needsUpdate = true;
-}
-
-// ============ UNIVERSO ============
-const rand = (a, b) => a + Math.random() * (b - a);
-const CYAN = new THREE.Color("#22d3ee"), PINK = new THREE.Color("#ec4899");
-
-function canvasTex(w, h, draw) {
-  const c = document.createElement("canvas");
-  c.width = w; c.height = h;
-  draw(c.getContext("2d"), w, h);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
+// ============ BURACO NEGRO (raytracing relativístico) + UNIVERSO REAL ============
+// Texturas: Solar System Scope (CC BY 4.0, baseadas em dados da NASA/ESO) · Asteroides: modelos 3D da NASA
+const texLoader = new THREE.TextureLoader();
+function loadTex(path, srgb = true) {
+  const t = texLoader.load(path);
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
   return t;
 }
-const css = (c, a = 1) => `rgba(${(c.r * 255) | 0},${(c.g * 255) | 0},${(c.b * 255) | 0},${a})`;
+const rand = (a, b) => a + Math.random() * (b - a);
 
-// Luz: o disco de acreção ilumina os planetas
-const bhLight = new THREE.PointLight(0xffb070, 60, 0, 1.4);
-bhRoot.add(bhLight);
-scene.add(new THREE.AmbientLight(0x6060a0, 0.25));
+const bhRoot = new THREE.Group();
+scene.add(bhRoot);
+const RS = 0.5; // raio de Schwarzschild em unidades do mundo
 
-// --- Nebulosas ---
-function cloudTex(c1, c2) {
-  return canvasTex(256, 256, (g, w, h) => {
-    for (let i = 0; i < 60; i++) {
-      const x = w / 2 + rand(-70, 70), y = h / 2 + rand(-70, 70), r = rand(20, 80);
-      const col = Math.random() < 0.5 ? c1 : c2;
-      const grd = g.createRadialGradient(x, y, 0, x, y, r);
-      grd.addColorStop(0, css(col, 0.05)); grd.addColorStop(1, css(col, 0));
-      g.fillStyle = grd; g.fillRect(0, 0, w, h);
-    }
-  });
-}
-const nebulae = [];
-[[cB, PINK, -60, 18, 12, 70], [cA, cB, 40, -14, -50, 60], [CYAN, cB, -25, -20, -35, 50],
- [PINK, cA, 55, 22, -70, 80], [cB, CYAN, 0, 30, -90, 90]].forEach(([c1, c2, x, y, z, s]) => {
-  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: cloudTex(c1, c2), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0.55,
-  }));
-  sp.position.set(x, y, z); sp.scale.setScalar(s);
-  sp.userData.spin = rand(-0.02, 0.02);
-  nebulae.push(sp); scene.add(sp);
-});
+// Orientação do disco de acreção e da Via Láctea no céu
+const diskN = new THREE.Vector3(0, 1, 0).applyEuler(new THREE.Euler(0.3, 0, -0.18)).normalize();
+const diskU = new THREE.Vector3().crossVectors(diskN, new THREE.Vector3(0, 0, 1)).normalize();
+const diskV = new THREE.Vector3().crossVectors(diskN, diskU).normalize();
+// centro da galáxia bem atrás do buraco negro, com a faixa da Via Láctea inclinada
+const skyRot = new THREE.Matrix3().setFromMatrix4(
+  new THREE.Matrix4().makeRotationX(0.55).multiply(new THREE.Matrix4().makeRotationY(-Math.PI / 2 - 0.32))
+);
 
-// --- Estrelas cintilantes (duas camadas) ---
-function starLayer(count, spread, size) {
-  const pos = new Float32Array(count * 3), col = new Float32Array(count * 3), ph = new Float32Array(count);
-  const tints = [new THREE.Color("#ffffff"), new THREE.Color("#9ecbff"), new THREE.Color("#ffd2a1"), cB];
-  for (let i = 0; i < count; i++) {
-    const v = new THREE.Vector3().randomDirection().multiplyScalar(rand(spread * 0.4, spread));
-    pos.set([v.x, v.y, v.z], i * 3);
-    const c = tints[(Math.random() * tints.length) | 0];
-    col.set([c.r, c.g, c.b], i * 3);
-    ph[i] = Math.random() * 100;
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
-  g.setAttribute("phase", new THREE.BufferAttribute(ph, 1));
-  const m = new THREE.ShaderMaterial({
-    uniforms: { uTime: bhUniforms.uTime, uSize: { value: size } },
+const skyTex = loadTex("assets/tex/8k_stars_milky_way.jpg");
+skyTex.minFilter = THREE.LinearMipmapLinearFilter; // o nível do mipmap é escolhido no shader (textureLod), sem costura
+
+const bhUniforms = {
+  uSky: { value: skyTex },
+  uSkyRot: { value: skyRot },
+  uCamWorld: { value: new THREE.Matrix4() },
+  uProjInv: { value: new THREE.Matrix4() },
+  uViewProj: { value: new THREE.Matrix4() },
+  uCamPos: { value: new THREE.Vector3() },
+  uCenter: { value: new THREE.Vector3() },
+  uDiskN: { value: diskN }, uDiskU: { value: diskU }, uDiskV: { value: diskV },
+  uRs: { value: RS },
+  uSkyLod: { value: 0 },
+  uTime: { value: 0 },
+  uAudio: { value: 0 },
+};
+
+const blackHole = new THREE.Mesh(
+  new THREE.PlaneGeometry(2, 2),
+  new THREE.ShaderMaterial({
+    uniforms: bhUniforms,
+    depthTest: true, depthWrite: true, depthFunc: THREE.AlwaysDepth,
     vertexShader: /* glsl */ `
-      attribute float phase; attribute vec3 color; uniform float uTime; uniform float uSize;
-      varying vec3 vC; varying float vT;
-      void main() {
-        vC = color;
-        vT = 0.55 + 0.45 * sin(uTime * (1.0 + fract(phase) * 3.0) + phase);
-        vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = min(3.5, uSize * (0.6 + vT) * (300.0 / -mv.z));
-        gl_Position = projectionMatrix * mv;
-      }`,
+      varying vec2 vUv;
+      void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
     fragmentShader: /* glsl */ `
-      varying vec3 vC; varying float vT;
+      precision highp float;
+      uniform sampler2D uSky;
+      uniform mat3 uSkyRot;
+      uniform mat4 uCamWorld, uProjInv, uViewProj;
+      uniform vec3 uCamPos, uCenter, uDiskN, uDiskU, uDiskV;
+      uniform float uRs, uTime, uAudio, uSkyLod;
+      varying vec2 vUv;
+
+      vec3 sky(vec3 d) {
+        d = uSkyRot * d;
+        vec2 uv = vec2(atan(d.z, d.x) / 6.2831853 + 0.5, asin(clamp(d.y, -1.0, 1.0)) / 3.14159265 + 0.5);
+        vec3 c = textureLod(uSky, uv, uSkyLod).rgb;
+        return c * 2.6 + c * c * 3.0;   // realça a faixa da Via Láctea sem estourar o céu escuro
+      }
+
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise(vec2 p) {
+        vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+      }
+      float fbm(vec2 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { v += a * noise(p); p = p * 2.03 + 7.1; a *= 0.5; } return v; }
+
+      // Cor de um corpo negro na temperatura T (Kelvin)
+      vec3 blackbody(float T) {
+        T = clamp(T, 1000.0, 40000.0) / 100.0;
+        float hot = step(66.0, T);                        // sem ramos: evita pow/log de número negativo
+        float tHot = max(T - 60.0, 1.0);
+        vec3 c;
+        c.r = mix(1.0, clamp(1.2929362 * pow(tHot, -0.1332048), 0.0, 1.0), hot);
+        c.g = mix(clamp(0.3900816 * log(T) - 0.6318414, 0.0, 1.0), clamp(1.1298909 * pow(tHot, -0.0755148), 0.0, 1.0), hot);
+        c.b = mix(clamp(0.5432068 * log(max(T - 10.0, 1.0)) - 1.1962541, 0.0, 1.0), 1.0, hot);
+        return c;
+      }
+
+      // Disco fino: perfil de temperatura de Shakura-Sunyaev + Doppler relativístico + redshift gravitacional
+      vec4 disk(vec3 p, float r, vec3 rayDir) {
+        float x = dot(p, uDiskU), y = dot(p, uDiskV);
+        float omega = 1.4 / pow(r, 1.5);                     // rotação kepleriana (mais rápido perto do buraco)
+        float a = -uTime * omega * (1.0 + uAudio * 0.6);
+        vec2 q = mat2(cos(a), -sin(a), sin(a), cos(a)) * vec2(x, y);
+        float warp = fbm(q * 0.9);
+        float rings = fbm(vec2(r * 3.2 + warp * 2.5, warp));
+        float turb = fbm(q * 2.4 + warp);
+        float dens = (0.2 + 1.1 * rings * turb) * smoothstep(3.0, 3.4, r) * smoothstep(12.0, 6.5, r);
+
+        float prof = pow(r / 3.0, -0.75) * pow(max(1.0 - sqrt(3.0 / r), 0.0), 0.25) / 0.49;
+        vec3 vdir = normalize(cross(uDiskN, p));
+        float beta = sqrt(0.5 / (r - 1.0)) * 0.85;
+        float gamma = 1.0 / sqrt(1.0 - beta * beta);
+        float dop = 1.0 / (gamma * (1.0 - beta * dot(vdir, -rayDir)));
+        float g = dop * sqrt(1.0 - 1.0 / r);
+        vec3 c = blackbody(3800.0 * prof * g) * pow(g, 3.0) * prof * prof * 0.9 * (1.0 + uAudio * 0.8);
+        return vec4(c * dens, clamp(dens * 1.2, 0.0, 0.97));
+      }
+
+      float depthOf(vec3 pLocal) {
+        vec4 clip = uViewProj * vec4(uCenter + pLocal * uRs, 1.0);
+        return clamp(clip.z / clip.w * 0.5 + 0.5, 0.0, 1.0);
+      }
+
       void main() {
-        float d = length(gl_PointCoord - 0.5);
-        float a = smoothstep(0.5, 0.0, d);
-        gl_FragColor = vec4(vC * a * vT, 1.0);
+        vec4 v = uProjInv * vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
+        vec3 dir = normalize((uCamWorld * vec4(v.xyz / v.w, 0.0)).xyz);
+        vec3 pos = (uCamPos - uCenter) / uRs;              // unidades de raio de Schwarzschild
+        float b = length(cross(pos, dir));                 // parâmetro de impacto
+
+        // Longe do buraco: só a deflexão fraca de Einstein (2Rs/b), sem integrar
+        if (b > 28.0) {
+          vec3 toC = -(pos - dot(pos, dir) * dir);
+          vec3 d = normalize(dir + toC / max(length(toC), 1e-4) * (2.0 / b));
+          gl_FragColor = vec4(sky(d), 1.0);
+          gl_FragDepth = 1.0;
+          return;
+        }
+
+        // Perto: integra a trajetória do fóton (geodésica de Schwarzschild na forma de Binet)
+        vec3 vel = dir;
+        vec3 h = cross(pos, vel);
+        float h2 = dot(h, h);
+        vec3 col = vec3(0.0);
+        float alpha = 0.0, depth = 1.0;
+        bool captured = false, depthSet = false;
+        for (int i = 0; i < 260; i++) {
+          float r = length(pos);
+          float dt = clamp(0.07 * r, 0.015, 1.2);
+          vec3 prev = pos;
+          vel += -1.5 * h2 * pos / pow(r, 5.0) * dt;
+          pos += vel * dt;
+          float s0 = dot(prev, uDiskN), s1 = dot(pos, uDiskN);
+          if (s0 * s1 < 0.0) {
+            vec3 p = mix(prev, pos, s0 / (s0 - s1));
+            float rr = length(p);
+            if (rr > 3.0 && rr < 12.0) {
+              vec4 dc = disk(p, rr, normalize(vel));
+              col += (1.0 - alpha) * dc.rgb;
+              alpha += (1.0 - alpha) * dc.a;
+              if (!depthSet && alpha > 0.18) { depth = depthOf(p); depthSet = true; }
+              if (alpha > 0.98) break;
+            }
+          }
+          if (dot(pos, pos) < 1.0) { captured = true; break; }
+          if (r > 45.0 && dot(pos, vel) > 0.0) break;
+        }
+        if (captured) { if (!depthSet) depth = depthOf(normalize(pos)); }
+        else col += (1.0 - alpha) * sky(normalize(vel));
+        if (any(isnan(col)) || any(isinf(col))) col = vec3(0.0);   // um pixel inválido apagaria a tela toda no bloom
+        gl_FragColor = vec4(min(col, vec3(200.0)), 1.0);
+        gl_FragDepth = depth;
       }`,
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-  });
-  return new THREE.Points(g, m);
-}
-const stars = starLayer(6000, 150, 0.35);
-const starsNear = starLayer(800, 60, 0.25);
-scene.add(stars, starsNear);
+  })
+);
+blackHole.frustumCulled = false;
+blackHole.renderOrder = -1000;
+scene.add(blackHole);
 
-// --- Galáxia espiral gigante ao fundo ---
-function galaxyPoints(count, radius, c1, c2) {
-  const pos = new Float32Array(count * 3), col = new Float32Array(count * 3);
-  const arms = 3 + ((Math.random() * 3) | 0);
-  for (let i = 0; i < count; i++) {
-    const r = Math.pow(Math.random(), 1.6) * radius;
-    const arm = ((i % arms) / arms) * Math.PI * 2;
-    const spin = (r / radius) * 5;
-    const rnd = () => Math.pow(Math.random(), 3) * (Math.random() < 0.5 ? 1 : -1) * radius * 0.08;
-    pos[i * 3] = Math.cos(arm + spin) * r + rnd();
-    pos[i * 3 + 1] = rnd() * 0.5;
-    pos[i * 3 + 2] = Math.sin(arm + spin) * r + rnd();
-    const c = new THREE.Color(1, 0.9, 0.8).lerp(c1, Math.min(1, r / radius * 2)).lerp(c2, r / radius);
-    col.set([c.r, c.g, c.b], i * 3);
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
-  return new THREE.Points(g, new THREE.PointsMaterial({
-    size: radius * 0.008, map: dotTex, vertexColors: true, transparent: true, depthWrite: false,
-    blending: THREE.AdditiveBlending, fog: false,
-  }));
-}
-const galaxies = [];
-const gal = galaxyPoints(12000, 30, cA, cB);
-gal.position.set(-20, 8, -75); gal.rotation.set(1.1, 0, 0.4);
-galaxies.push(gal);
-// galáxias distantes menores
-for (let i = 0; i < 6; i++) {
-  const gx = galaxyPoints(1500, rand(3, 6), [cA, CYAN, PINK][i % 3], cB);
-  gx.position.set(rand(-90, 90), rand(-40, 40), rand(-110, -60));
-  gx.rotation.set(rand(0, Math.PI), rand(0, Math.PI), 0);
-  galaxies.push(gx);
-}
-galaxies.forEach((g, i) => { g.userData.spin = rand(0.01, 0.04); if (i) g.material.opacity = 0.55; scene.add(g); });
+// Luz: o disco ilumina os planetas (quente) + um brilho azulado fraco da galáxia
+const bhLight = new THREE.PointLight(0xffc48a, 70, 0, 1.3);
+bhRoot.add(bhLight);
+scene.add(new THREE.AmbientLight(0x8090c0, 0.06));
+scene.add(new THREE.HemisphereLight(0x9ab0ff, 0x100808, 0.12));
 
-// --- Planetas ---
-function planetTex(type, c1, c2) {
-  return canvasTex(512, 256, (g, w, h) => {
-    if (type === "gas") {
-      for (let y = 0; y < h; y++) {
-        const t = 0.5 + 0.5 * Math.sin(y * 0.09 + Math.sin(y * 0.021) * 4);
-        const c = c1.clone().lerp(c2, t).multiplyScalar(0.8 + Math.random() * 0.2);
-        g.fillStyle = css(c); g.fillRect(0, y, w, 1);
-      }
-      // tempestade
-      g.fillStyle = css(c2.clone().lerp(new THREE.Color(1, 1, 1), 0.3), 0.8);
-      g.beginPath(); g.ellipse(w * 0.3, h * 0.62, 28, 12, 0, 0, Math.PI * 2); g.fill();
-    } else {
-      g.fillStyle = css(c1); g.fillRect(0, 0, w, h);
-      for (let i = 0; i < 400; i++) {
-        const x = Math.random() * w, y = Math.random() * h, r = rand(2, 22);
-        g.fillStyle = css(Math.random() < 0.5 ? c2 : c1.clone().multiplyScalar(0.6), rand(0.2, 0.6));
-        g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
-      }
-      if (type === "ice") {
-        g.fillStyle = "rgba(255,255,255,.85)";
-        g.fillRect(0, 0, w, 22); g.fillRect(0, h - 22, w, 22);
-      }
-    }
-  });
-}
-function ringTex(c) {
-  return canvasTex(512, 8, (g, w) => {
-    for (let x = 0; x < w; x++) {
-      const a = Math.max(0, Math.sin(x * 0.12) * 0.4 + Math.sin(x * 0.037) * 0.3 + 0.3) * (x > w * 0.1 ? 1 : 0);
-      g.fillStyle = css(c, a); g.fillRect(x, 0, 1, 8);
-    }
-  });
-}
-
+// --- Planetas com texturas reais ---
 const planets = [];
-function addPlanet({ r, orbit, speed, tilt = 0, type, c1, c2, ring, moon, phase = Math.random() * 6.28 }) {
-  const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(r, 64, 32),
-    new THREE.MeshStandardMaterial({ map: planetTex(type, c1, c2), roughness: 0.9, metalness: 0 })
-  );
-  // atmosfera
-  mesh.add(new THREE.Mesh(
-    new THREE.SphereGeometry(r * 1.08, 48, 24),
-    new THREE.ShaderMaterial({
-      uniforms: { uC: { value: c2 } },
-      vertexShader: `varying vec3 vN; varying vec3 vV; void main(){ vec4 mv = modelViewMatrix*vec4(position,1.); vN = normalize(normalMatrix*normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix*mv; }`,
-      fragmentShader: `uniform vec3 uC; varying vec3 vN; varying vec3 vV; void main(){ float f = pow(1.0 - abs(dot(vN, vV)), 3.0); gl_FragColor = vec4(uC * f * 1.2, f); }`,
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide,
-    })
-  ));
+function addPlanet({ tex, r, orbit, speed, tilt = 0, ring, moon, phase }) {
   const pivot = new THREE.Group();
-  pivot.add(mesh);
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(r, 96, 48),
+    new THREE.MeshStandardMaterial({ map: loadTex(tex), roughness: 1, metalness: 0 })
+  );
   mesh.rotation.z = tilt;
+  pivot.add(mesh);
   if (ring) {
-    const rg = new THREE.RingGeometry(r * 1.4, r * 2.4, 128, 1);
-    // UV radial para a textura dos anéis
+    const inner = r * 1.25, outer = r * 2.3;
+    const rg = new THREE.RingGeometry(inner, outer, 160, 1);
     const p = rg.attributes.position, uv = rg.attributes.uv;
-    for (let i = 0; i < p.count; i++) {
-      const d = Math.hypot(p.getX(i), p.getY(i));
-      uv.setXY(i, (d - r * 1.4) / (r * 1.0), 0.5);
-    }
-    const rm = new THREE.Mesh(rg, new THREE.MeshBasicMaterial({ map: ringTex(ring), transparent: true, side: THREE.DoubleSide, depthWrite: false }));
-    rm.rotation.x = -Math.PI / 2 + 0.35;
+    for (let i = 0; i < p.count; i++) uv.setXY(i, (Math.hypot(p.getX(i), p.getY(i)) - inner) / (outer - inner), 0.5);
+    const rm = new THREE.Mesh(rg, new THREE.MeshStandardMaterial({
+      map: loadTex(ring), transparent: true, side: THREE.DoubleSide, depthWrite: false, roughness: 1,
+    }));
+    rm.rotation.x = -Math.PI / 2;
     mesh.add(rm);
   }
   if (moon) {
-    const m = new THREE.Mesh(new THREE.SphereGeometry(r * 0.27, 32, 16),
-      new THREE.MeshStandardMaterial({ map: planetTex("rock", new THREE.Color("#8a8a92"), new THREE.Color("#5a5a64")), roughness: 1 }));
+    const m = new THREE.Mesh(new THREE.SphereGeometry(r * 0.27, 48, 24),
+      new THREE.MeshStandardMaterial({ map: loadTex("assets/tex/2k_moon.jpg"), roughness: 1 }));
     pivot.add(m);
     pivot.userData.moon = m;
   }
-  pivot.userData = { ...pivot.userData, orbit, speed, phase, mesh, r };
+  Object.assign(pivot.userData, { orbit, speed, phase, mesh, r });
   planets.push(pivot);
   bhRoot.add(pivot);
 }
-addPlanet({ r: 0.35, orbit: 7.2, speed: 0.12, type: "rock", c1: new THREE.Color("#b5542c"), c2: new THREE.Color("#e08a4c"), phase: 1 });
-addPlanet({ r: 0.9, orbit: 10.5, speed: 0.07, tilt: 0.3, type: "gas", c1: new THREE.Color("#c9a37a"), c2: new THREE.Color("#7d5a3a"), ring: new THREE.Color("#e8d2b0"), phase: 3.5 });
-addPlanet({ r: 0.55, orbit: 13.5, speed: 0.05, type: "ice", c1: new THREE.Color("#3b6fb6"), c2: new THREE.Color("#7fd3f7"), moon: true, phase: 5.2 });
-addPlanet({ r: 1.3, orbit: 19, speed: 0.03, tilt: -0.2, type: "gas", c1: cB.clone(), c2: new THREE.Color("#2a1a4a"), phase: 2.2 });
+addPlanet({ tex: "assets/tex/2k_mars.jpg", r: 0.33, orbit: 7.8, speed: 0.1, phase: 1 });
+addPlanet({ tex: "assets/tex/2k_saturn.jpg", r: 0.8, orbit: 11, speed: 0.06, tilt: 0.45, ring: "assets/tex/2k_saturn_ring_alpha.png", phase: 3.6 });
+addPlanet({ tex: "assets/tex/2k_neptune.jpg", r: 0.5, orbit: 14, speed: 0.045, moon: true, phase: 5.3 });
+addPlanet({ tex: "assets/tex/2k_jupiter.jpg", r: 1.3, orbit: 19, speed: 0.028, tilt: 0.05, phase: 2.3 });
 
-// --- Cinturão de asteroides ---
-const AST = 500;
-const astGeo = new THREE.DodecahedronGeometry(1, 0);
-const asteroids = new THREE.InstancedMesh(astGeo, new THREE.MeshStandardMaterial({ color: 0x8a7f78, roughness: 1, flatShading: true }), AST);
-const astData = [];
+// --- Cinturão com asteroides reais escaneados pela NASA ---
+// flatShading: as normais vêm do próprio triângulo, então triângulos degenerados dos STL da NASA não geram NaN
+const rockMat = new THREE.MeshStandardMaterial({ color: 0x8c8078, roughness: 1, metalness: 0, flatShading: true });
+const belt = new THREE.Group();
+belt.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), diskN);
+bhRoot.add(belt);
+const beltSets = [];
+function normalizeGeo(g) {
+  g.computeBoundingSphere();
+  const s = g.boundingSphere;
+  g.translate(-s.center.x, -s.center.y, -s.center.z);
+  g.scale(1 / s.radius, 1 / s.radius, 1 / s.radius);
+  if (!g.attributes.normal) g.computeVertexNormals();
+  return g;
+}
+const stlLoader = new STLLoader();
+["kleopatra", "toutatis", "geographos", "golevka", "mithra"].forEach((name) => {
+  stlLoader.load(`assets/models/${name}.stl`, (geo) => {
+    geo = normalizeGeo(geo);
+    const COUNT = 70;
+    const mesh = new THREE.InstancedMesh(geo, rockMat, COUNT);
+    const data = [];
+    for (let i = 0; i < COUNT; i++) {
+      data.push({ r: rand(8.6, 10.2), a: Math.random() * Math.PI * 2, y: rand(-0.3, 0.3), s: rand(0.03, 0.12),
+        rx: Math.random() * 6, ry: Math.random() * 6, spin: rand(0.2, 1) });
+    }
+    beltSets.push({ mesh, data });
+    belt.add(mesh);
+  });
+});
+
+// Bennu (OSIRIS-REx) girando em primeiro plano
+let bennu = null;
+new GLTFLoader().load("assets/models/bennu.glb", (gltf) => {
+  bennu = gltf.scene;
+  const box = new THREE.Box3().setFromObject(bennu);
+  const size = box.getSize(new THREE.Vector3()).length();
+  bennu.position.sub(box.getCenter(new THREE.Vector3()));
+  const holder = new THREE.Group();
+  holder.add(bennu);
+  holder.scale.setScalar(1.1 / size);
+  bennu.traverse((o) => { if (o.isMesh) { o.material.roughness = 1; o.material.metalness = 0; } });
+  bennu = holder;
+  bennu.position.set(-6.5, 2.6, 1.5);
+  bhRoot.add(bennu);
+});
+
 const dummy = new THREE.Object3D();
-for (let i = 0; i < AST; i++) {
-  astData.push({ r: rand(8.3, 9.3), a: Math.random() * Math.PI * 2, y: rand(-0.25, 0.25), s: rand(0.02, 0.09), rot: Math.random() * 6 });
-}
-bh.add(asteroids);
+function updateWorld(t, dt, energy) {
+  const sc = innerWidth < 700 ? 0.75 : 1;
+  bhRoot.scale.setScalar(sc);
+  bhRoot.updateMatrixWorld();
 
-// --- Cometas / estrelas cadentes ---
-const comets = [];
-function makeComet() {
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(6), 3));
-  g.setAttribute("color", new THREE.BufferAttribute(new Float32Array([1, 1, 1, 0, 0, 0]), 3));
-  const line = new THREE.Line(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, fog: false }));
-  line.userData = { life: 0, pos: new THREE.Vector3(), vel: new THREE.Vector3() };
-  line.visible = false;
-  comets.push(line); scene.add(line);
-}
-for (let i = 0; i < 4; i++) makeComet();
-function launchComet(c) {
-  const u = c.userData;
-  u.pos.set(rand(-40, 40), rand(10, 30), rand(-60, -20));
-  u.vel.set(rand(-1, 1), rand(-0.6, -0.2), rand(-0.1, 0.3)).normalize().multiplyScalar(rand(30, 55));
-  u.life = rand(1.2, 2.2); u.len = rand(0.08, 0.14);
-  c.visible = true;
-}
-
-function updateUniverse(t, dt, energy) {
-  nebulae.forEach((n) => (n.material.rotation += n.userData.spin * dt));
-  galaxies.forEach((g) => (g.rotation.y += g.userData.spin * dt));
-  stars.rotation.y = t * 0.004;
-  starsNear.rotation.y = t * 0.01;
+  camera.updateMatrixWorld();
+  bhUniforms.uCamWorld.value.copy(camera.matrixWorld);
+  bhUniforms.uProjInv.value.copy(camera.projectionMatrixInverse);
+  bhUniforms.uViewProj.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  bhUniforms.uCamPos.value.copy(camera.position);
+  bhRoot.getWorldPosition(bhUniforms.uCenter.value);
+  bhUniforms.uRs.value = RS * sc;
+  bhUniforms.uTime.value = t;
+  bhUniforms.uAudio.value = energy;
+  // quantos texels do céu cabem num pixel da tela -> nível de mipmap
+  const texelsPerPixel = (THREE.MathUtils.degToRad(camera.fov) / renderer.domElement.height) * (8192 / (2 * Math.PI));
+  bhUniforms.uSkyLod.value = Math.max(0, Math.log2(texelsPerPixel));
 
   planets.forEach((p) => {
     const u = p.userData;
     const a = u.phase + t * u.speed;
-    // órbitas inclinadas e sempre atrás do buraco negro, para nunca cobrirem o horizonte
+    // órbitas inclinadas e atrás do buraco negro
     p.position.set(Math.cos(a) * u.orbit, Math.sin(a) * u.orbit * 0.25, Math.sin(a) * u.orbit * 0.4 - u.orbit * 0.55);
-    u.mesh.rotation.y += dt * 0.25;
-    if (u.moon) u.moon.position.set(Math.cos(t * 0.9) * u.r * 2.2, Math.sin(t * 0.9) * u.r * 0.6, Math.sin(t * 0.9) * u.r * 2.2);
+    u.mesh.rotation.y += dt * 0.12;
+    if (u.moon) u.moon.position.set(Math.cos(t * 0.6) * u.r * 2.4, Math.sin(t * 0.6) * u.r * 0.5, Math.sin(t * 0.6) * u.r * 2.4);
   });
 
-  const sp = 1 + energy * 1.5;
-  for (let i = 0; i < AST; i++) {
-    const d = astData[i];
-    d.a += (0.6 / Math.pow(d.r, 1.5)) * dt * sp;
-    d.rot += dt * 0.5;
-    dummy.position.set(Math.cos(d.a) * d.r, d.y, Math.sin(d.a) * d.r);
-    dummy.rotation.set(d.rot, d.rot * 0.7, 0);
-    dummy.scale.setScalar(d.s);
-    dummy.updateMatrix();
-    asteroids.setMatrixAt(i, dummy.matrix);
-  }
-  asteroids.instanceMatrix.needsUpdate = true;
-
-  comets.forEach((c) => {
-    const u = c.userData;
-    if (!c.visible) { if (Math.random() < 0.004) launchComet(c); return; }
-    u.life -= dt;
-    if (u.life <= 0) { c.visible = false; return; }
-    u.pos.addScaledVector(u.vel, dt);
-    const arr = c.geometry.attributes.position.array;
-    arr[0] = u.pos.x; arr[1] = u.pos.y; arr[2] = u.pos.z;
-    arr[3] = u.pos.x - u.vel.x * u.len; arr[4] = u.pos.y - u.vel.y * u.len; arr[5] = u.pos.z - u.vel.z * u.len;
-    c.geometry.attributes.position.needsUpdate = true;
-    c.material.opacity = Math.min(1, u.life);
+  const sp = 1 + energy * 1.2;
+  beltSets.forEach(({ mesh, data }) => {
+    for (let i = 0; i < data.length; i++) {
+      const d = data[i];
+      d.a += (0.55 / Math.pow(d.r, 1.5)) * dt * sp;
+      d.rx += dt * d.spin * 0.4; d.ry += dt * d.spin * 0.3;
+      dummy.position.set(Math.cos(d.a) * d.r, d.y, Math.sin(d.a) * d.r);
+      dummy.rotation.set(d.rx, d.ry, 0);
+      const wz = Math.sin(d.a) * d.r;   // lado mais perto da câmera
+      dummy.scale.setScalar(d.s * THREE.MathUtils.smoothstep(-wz, -7.5, -4.5));
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
   });
 
-  bhLight.intensity = 60 + energy * 80;
+  if (bennu) { bennu.rotation.y += dt * 0.15; bennu.rotation.x = 0.4 + Math.sin(t * 0.2) * 0.1; }
+  bhLight.intensity = 70 + energy * 70;
 }
 
 // Pós-processamento (bloom)
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.55, 0.15, 0.5);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.35, 0.2, 0.85);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
-addEventListener("resize", () => {
-  camera.aspect = innerWidth / innerHeight;
+// Ajusta o tamanho sempre que a janela mudar (inclusive se a página abriu com tamanho zero)
+const lastSize = new THREE.Vector2();
+function fitRenderer() {
+  if (lastSize.x === innerWidth && lastSize.y === innerHeight) return;
+  lastSize.set(innerWidth, innerHeight);
+  camera.aspect = innerWidth / Math.max(1, innerHeight);
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
   composer.setSize(innerWidth, innerHeight);
-});
+}
+addEventListener("resize", fitRenderer);
 
 // Posição do buraco negro: atrás do card no celular, ao lado no desktop
 function coreX() { return innerWidth > 1100 ? 4.6 : 0; }
@@ -909,19 +803,12 @@ function loop() {
   if (entered) intro = Math.min(1, intro + dt * 0.45);
   const ease = 1 - Math.pow(1 - intro, 3);
 
-  bhUniforms.uTime.value = t;
-  bhUniforms.uAudio.value = beat;
-  updateInfall(dt, beat);
-  bhRoot.scale.setScalar((innerWidth < 700 ? 0.75 : 1) * (1 + beat * 0.06));
-  lens.quaternion.copy(camera.quaternion);
-  photon.quaternion.copy(camera.quaternion);
-  updateUniverse(t, dt, beat);
 
   view += ((viewMode ? 1 : 0) - view) * 0.04;
   const tx = coreX() * ease * (1 - view);
   bhRoot.position.x += (tx - bhRoot.position.x) * 0.05;
 
-  bloom.strength = 0.5 + beat * 0.6;
+  bloom.strength = 0.3 + beat * 0.35;
 
   // Parallax do mouse + intro
   const mx = (cx / innerWidth - 0.5), my = (cy / innerHeight - 0.5);
@@ -937,6 +824,8 @@ function loop() {
   cur.style.transform = `translate(${cx}px, ${cy}px) translate(-50%, -50%)`;
   ring.style.transform = `translate(${rx}px, ${ry}px) translate(-50%, -50%)`;
 
+  fitRenderer();
+  updateWorld(t, dt, beat);
   composer.render();
 }
 camera.position.z = 26;

@@ -7,11 +7,11 @@ window.PROFILE = {
   // Foto do avatar (baixada do seu Roblox). Deixe "" para usar o avatar do Discord (se discordId estiver preenchido)
   avatar: "assets/avatar.png",
   // Frases que ficam "digitando" embaixo do nome
-  roles: ["Jester", "HR", "Programador", "Criador de conteúdo", "Vida complicado"],
+  roles: ["Jester", "AHR7", "Programador", "Criador de conteúdo", "Vida complicado"],
   // Etiquetas/cargos que aparecem como badges (tip = balão ao passar o mouse)
   badges: [
     { label: "Jester", icon: "🃏", tip: "o bobo da corte" },
-    { label: "HR", icon: "👑", tip: "cuido da staff" },
+    { label: "AHR7", icon: "👑", tip: "ahr7onix" },
     { label: "Programador", icon: "💻", tip: "escrevo código" },
     { label: "Criador de conteúdo", icon: "🎥", tip: "faço vídeos e posts" },
     { label: "Roblox", icon: "🎮", tip: "sempre online no Roblox" },
