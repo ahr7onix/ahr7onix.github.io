@@ -72,10 +72,12 @@
       </div>
 
       <div class="player">
+        <button class="skip-btn" id="prev-btn" aria-label="Música anterior"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
         <button class="play-btn" id="play-btn" aria-label="Tocar/pausar">
           <svg id="icon-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
           <svg id="icon-play" class="hidden" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg>
         </button>
+        <button class="skip-btn" id="next-btn" aria-label="Próxima música"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
         <div class="track">
           <div class="marquee"><span id="track-name"></span></div>
           <canvas id="viz" width="400" height="40"></canvas>

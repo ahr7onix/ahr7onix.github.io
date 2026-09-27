@@ -24,15 +24,18 @@ window.PROFILE = {
   accent: "#ff5e1a",
   accent2: "#8b5cf6",
 
-  // Música: cole o ID de um vídeo do YouTube (o que vem depois de "watch?v=").
-  // bpm = ritmo da música, usado para a pulsação do universo. Deixe youtube: "" para usar assets/music.mp3.
+  // Músicas do YouTube. Para adicionar, copie um bloco { ... } e troque o ID (o que vem depois de "watch?v=").
+  // bpm = ritmo da música, usado para a pulsação do universo. shuffle: true = ordem aleatória.
   music: {
-    youtube: "m4NMSr837Y0",
-    start: 0,
-    bpm: 150,
+    shuffle: false,
+    playlist: [
+      { youtube: "-Q8rb4OGHak", title: "BLUE LOCK: BIG BANG DRIVE (Thesius Remix)", artist: "THESIUS MUSICAL", bpm: 140 },
+      { youtube: "m4NMSr837Y0", title: "Nightcore - Doktorspiele", artist: "Maikel6311's Nightcore", bpm: 150 },
+    ],
+    // reserva, se nenhum vídeo carregar
     src: "assets/music.mp3",
-    title: "Nightcore - Doktorspiele",
-    artist: "Maikel6311's Nightcore",
+    title: "Trilha do perfil",
+    artist: "jester",
   },
 
   // Plataformas. platform = nome do ícone do simple-icons (discord, roblox, instagram, tiktok, youtube, github, x, twitch, spotify, steam...)

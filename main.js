@@ -157,7 +157,25 @@ setInterval(lanyard, 30000);
    ============================================================ */
 const audio = $("audio");
 let actx, analyser, master, freq, usingSynth = false, playing = false;
-let yt = null, ytReady = false, ytWanted = false, ytMode = !!P.music.youtube;
+let yt = null, ytReady = false, ytWanted = false;
+// Playlist: aceita a lista nova (music.playlist) ou o formato antigo de um vídeo só (music.youtube)
+const playlist = (P.music.playlist || (P.music.youtube ? [{ youtube: P.music.youtube, title: P.music.title, artist: P.music.artist, bpm: P.music.bpm }] : []))
+  .filter((t) => t.youtube);
+let ytMode = playlist.length > 0, track = 0, failed = 0;
+if (P.music.shuffle) playlist.sort(() => Math.random() - 0.5);
+
+function showTrack() {
+  const t = playlist[track];
+  $("track-name").textContent = `♪ ${t.title || "Música " + (track + 1)}${t.artist ? " — " + t.artist : ""}  (${track + 1}/${playlist.length})`;
+}
+function loadTrack(i, autoplay = true) {
+  track = (i + playlist.length) % playlist.length;
+  showTrack();
+  if (!ytReady) return;
+  const t = playlist[track];
+  if (autoplay) yt.loadVideoById({ videoId: t.youtube, startSeconds: t.start || 0 });
+  else yt.cueVideoById({ videoId: t.youtube, startSeconds: t.start || 0 });
+}
 
 function initAudio() {
   actx = new (window.AudioContext || window.webkitAudioContext)();
@@ -173,22 +191,32 @@ function initAudio() {
 
 // ---- Música pelo player do YouTube (carrega já na abertura, toca no clique de entrar) ----
 if (ytMode) {
+  showTrack();
   const box = document.createElement("div");
   box.id = "yt-box";
   box.innerHTML = '<div id="yt"></div>';
   document.body.appendChild(box);
   window.onYouTubeIframeAPIReady = () => {
+    const first = playlist[track];
     yt = new YT.Player("yt", {
-      width: 200, height: 200, videoId: P.music.youtube,
-      playerVars: { autoplay: 0, controls: 0, loop: 1, playlist: P.music.youtube, start: P.music.start || 0, playsinline: 1 },
+      width: 200, height: 200, videoId: first.youtube,
+      playerVars: { autoplay: 0, controls: 0, start: first.start || 0, playsinline: 1 },
       events: {
         onReady: () => {
           ytReady = true;
           yt.setVolume(+$("volume").value * 100);
           if (ytWanted) yt.playVideo();
         },
-        onStateChange: (e) => { if (e.data === YT.PlayerState.ENDED) yt.playVideo(); },
-        onError: () => { ytMode = false; if (ytWanted) { initAudio(); startSynth(); } },
+        onStateChange: (e) => {
+          if (e.data === YT.PlayerState.PLAYING) failed = 0;
+          if (e.data === YT.PlayerState.ENDED) loadTrack(track + 1);
+        },
+        onError: () => {
+          // vídeo bloqueado para embed: pula para o próximo; se todos falharem, usa a trilha synthwave
+          if (++failed < playlist.length) return loadTrack(track + 1, ytWanted);
+          ytMode = false;
+          if (ytWanted) { initAudio(); startSynth(); }
+        },
       },
     });
   };
@@ -196,6 +224,14 @@ if (ytMode) {
   tag.src = "https://www.youtube.com/iframe_api";
   tag.onerror = () => { ytMode = false; };
   document.head.appendChild(tag);
+}
+
+$("prev-btn").addEventListener("click", () => { if (ytMode) { playing = true; syncPlayIcon(); loadTrack(track - 1); } });
+$("next-btn").addEventListener("click", () => { if (ytMode) { playing = true; syncPlayIcon(); loadTrack(track + 1); } });
+if (!ytMode || playlist.length < 2) { $("prev-btn").classList.add("hidden"); $("next-btn").classList.add("hidden"); }
+function syncPlayIcon() {
+  $("icon-play").classList.toggle("hidden", playing);
+  $("icon-pause").classList.toggle("hidden", !playing);
 }
 
 async function startMusic() {
@@ -232,8 +268,7 @@ $("play-btn").addEventListener("click", () => {
   if (ytMode) { if (ytReady) playing ? yt.playVideo() : yt.pauseVideo(); }
   else if (playing) { actx.resume(); if (!usingSynth) audio.play(); }
   else { actx.suspend(); if (!usingSynth) audio.pause(); }
-  $("icon-play").classList.toggle("hidden", playing);
-  $("icon-pause").classList.toggle("hidden", !playing);
+  syncPlayIcon();
 });
 $("volume").addEventListener("input", (e) => {
   if (master) master.gain.value = +e.target.value;
@@ -243,7 +278,7 @@ $("volume").addEventListener("input", (e) => {
 // O YouTube não deixa ler o som, então no modo YouTube a batida é simulada no BPM da música
 const fakeBins = new Uint8Array(128);
 function simulatedBeat(t) {
-  const bpm = P.music.bpm || 120, ph = (t * bpm / 60) % 1;
+  const bpm = (playlist[track] && playlist[track].bpm) || P.music.bpm || 120, ph = (t * bpm / 60) % 1;
   const kick = Math.pow(1 - ph, 6);
   const vol = +$("volume").value;
   for (let i = 0; i < fakeBins.length; i++) {
