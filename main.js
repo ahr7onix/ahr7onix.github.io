@@ -439,7 +439,6 @@ function drawViz(bins) {
    ============================================================ */
 const canvas = $("bg");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
@@ -473,7 +472,9 @@ const skyRot = new THREE.Matrix3().setFromMatrix4(
   new THREE.Matrix4().makeRotationX(0.55).multiply(new THREE.Matrix4().makeRotationY(-Math.PI / 2 - 0.32))
 );
 
-const skyTex = loadTex("assets/tex/8k_stars_milky_way.jpg");
+const bigScreen = Math.max(screen.width, screen.height) * Math.min(devicePixelRatio, 1.5) >= 1800;
+const SKY_SIZE = bigScreen && renderer.capabilities.maxTextureSize >= 8192 ? 8192 : 4096;
+const skyTex = loadTex(`assets/tex/${SKY_SIZE === 8192 ? "8k" : "4k"}_stars_milky_way.jpg`);
 skyTex.minFilter = THREE.LinearMipmapLinearFilter;
 skyTex.mapping = THREE.EquirectangularReflectionMapping; // o nível do mipmap é escolhido no shader (textureLod), sem costura
 
@@ -672,14 +673,14 @@ const planets = [];
 function addPlanet({ tex, r, orbit, speed, tilt = 0, ring, moon, phase }) {
   const pivot = new THREE.Group();
   const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(r, 96, 48),
+    new THREE.SphereGeometry(r, 64, 32),
     new THREE.MeshStandardMaterial({ map: loadTex(tex), roughness: 1, metalness: 0, envMapIntensity: 0.12 })
   );
   mesh.rotation.z = tilt;
   pivot.add(mesh);
   if (ring) {
     const inner = r * 1.25, outer = r * 2.3;
-    const rg = new THREE.RingGeometry(inner, outer, 160, 1);
+    const rg = new THREE.RingGeometry(inner, outer, 96, 1);
     const p = rg.attributes.position, uv = rg.attributes.uv;
     for (let i = 0; i < p.count; i++) uv.setXY(i, (Math.hypot(p.getX(i), p.getY(i)) - inner) / (outer - inner), 0.5);
     const rm = new THREE.Mesh(rg, new THREE.MeshStandardMaterial({
@@ -689,8 +690,8 @@ function addPlanet({ tex, r, orbit, speed, tilt = 0, ring, moon, phase }) {
     mesh.add(rm);
   }
   if (moon) {
-    const m = new THREE.Mesh(new THREE.SphereGeometry(r * 0.27, 48, 24),
-      new THREE.MeshStandardMaterial({ map: loadTex("assets/tex/2k_moon.jpg"), roughness: 1 }));
+    const m = new THREE.Mesh(new THREE.SphereGeometry(r * 0.27, 32, 16),
+      new THREE.MeshStandardMaterial({ map: loadTex("assets/tex/1k_moon.jpg"), roughness: 1 }));
     pivot.add(m);
     pivot.userData.moon = m;
   }
@@ -698,9 +699,9 @@ function addPlanet({ tex, r, orbit, speed, tilt = 0, ring, moon, phase }) {
   planets.push(pivot);
   bhRoot.add(pivot);
 }
-addPlanet({ tex: "assets/tex/2k_mars.jpg", r: 0.33, orbit: 7.8, speed: 0.1, phase: 1 });
+addPlanet({ tex: "assets/tex/1k_mars.jpg", r: 0.33, orbit: 7.8, speed: 0.1, phase: 1 });
 addPlanet({ tex: "assets/tex/2k_saturn.jpg", r: 0.8, orbit: 11, speed: 0.06, tilt: 0.45, ring: "assets/tex/2k_saturn_ring_alpha.png", phase: 3.6 });
-addPlanet({ tex: "assets/tex/2k_neptune.jpg", r: 0.5, orbit: 14, speed: 0.045, moon: true, phase: 5.3 });
+addPlanet({ tex: "assets/tex/1k_neptune.jpg", r: 0.5, orbit: 14, speed: 0.045, moon: true, phase: 5.3 });
 addPlanet({ tex: "assets/tex/2k_jupiter.jpg", r: 1.3, orbit: 19, speed: 0.028, tilt: 0.05, phase: 2.3 });
 
 // --- Cinturão com asteroides reais escaneados pela NASA ---
@@ -798,7 +799,7 @@ function updateWorld(t, dt, energy) {
   bhUniforms.uTime.value = t;
   bhUniforms.uAudio.value = energy;
   // quantos texels do céu cabem num pixel da tela -> nível de mipmap
-  const texelsPerPixel = (THREE.MathUtils.degToRad(camera.fov) / renderer.domElement.height) * (8192 / (2 * Math.PI));
+  const texelsPerPixel = (THREE.MathUtils.degToRad(camera.fov) / renderer.domElement.height) * (SKY_SIZE / (2 * Math.PI));
   bhUniforms.uSkyLod.value = Math.max(0, Math.log2(texelsPerPixel));
   const galTexels = (THREE.MathUtils.degToRad(camera.fov) / renderer.domElement.height) * (1280 / THREE.MathUtils.degToRad(galA.halfDeg * 2));
   bhUniforms.uGalLod.value = Math.max(0, Math.log2(galTexels));
@@ -881,6 +882,28 @@ addEventListener("resize", fitRenderer);
 // Posição do buraco negro: atrás do card no celular, ao lado no desktop
 function coreX() { return innerWidth > 1100 ? 4.6 : 0; }
 
+// Qualidade automática: se o FPS cair, reduz a resolução interna da cena; se sobrar, aumenta
+const MAX_PR = Math.min(devicePixelRatio, 1.5), MIN_PR = 0.5;
+let pixelRatio = Math.min(MAX_PR, innerWidth < 700 ? 1 : MAX_PR);
+let perfFrames = 0, perfTime = 0, perfCooldown = 2;
+function setPixelRatio(pr) {
+  pixelRatio = pr;
+  renderer.setPixelRatio(pr);
+  composer.setPixelRatio(pr);
+  composer.setSize(innerWidth, innerHeight);
+}
+setPixelRatio(pixelRatio);
+function adaptQuality(dt) {
+  if (document.hidden || dt <= 0) return;
+  perfFrames++; perfTime += dt;
+  if (perfTime < 1) return;
+  const fps = perfFrames / perfTime;
+  perfFrames = 0; perfTime = 0;
+  if (perfCooldown > 0) { perfCooldown--; return; }      // ignora os primeiros segundos (carregamento)
+  if (fps < 45 && pixelRatio > MIN_PR) setPixelRatio(Math.max(MIN_PR, pixelRatio * 0.8));
+  else if (fps > 58 && pixelRatio < MAX_PR) setPixelRatio(Math.min(MAX_PR, pixelRatio * 1.1));
+}
+
 let entered = false, intro = 0, beat = 0, lastT = 0, viewMode = false, view = 0;
 const clock = new THREE.Clock();
 
@@ -937,6 +960,7 @@ function loop() {
   ring.style.transform = `translate(${rx}px, ${ry}px) translate(-50%, -50%)`;
 
   fitRenderer();
+  adaptQuality(dt);
   updateWorld(t, dt, beat);
   composer.render();
 }
