@@ -3,8 +3,10 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 
 const P = window.PROFILE;
 const $ = (id) => document.getElementById(id);
@@ -472,9 +474,27 @@ const skyRot = new THREE.Matrix3().setFromMatrix4(
 );
 
 const skyTex = loadTex("assets/tex/8k_stars_milky_way.jpg");
-skyTex.minFilter = THREE.LinearMipmapLinearFilter; // o nível do mipmap é escolhido no shader (textureLod), sem costura
+skyTex.minFilter = THREE.LinearMipmapLinearFilter;
+skyTex.mapping = THREE.EquirectangularReflectionMapping; // o nível do mipmap é escolhido no shader (textureLod), sem costura
+
+// Galáxias reais do Hubble (ESA/Hubble, CC BY 4.0) pregadas no céu — também são curvadas pela lente
+function galaxyDecal(path, dir, rollDeg, halfDeg, aspect, bright) {
+  const tex = loadTex(path);
+  const d = new THREE.Vector3(...dir).normalize();
+  const right = new THREE.Vector3().crossVectors(d, new THREE.Vector3(0, 1, 0)).normalize();
+  const up = new THREE.Vector3().crossVectors(right, d).normalize();
+  const q = new THREE.Quaternion().setFromAxisAngle(d, THREE.MathUtils.degToRad(rollDeg));
+  right.applyQuaternion(q); up.applyQuaternion(q);
+  const halfTan = Math.tan(THREE.MathUtils.degToRad(halfDeg));
+  return { tex, d, right, up, params: new THREE.Vector3(halfTan, aspect, bright), halfDeg };
+}
+const galA = galaxyDecal("assets/tex/gal_heic0506a.jpg", [0.2, 0.36, -0.9], -18, 12, 1280 / 886, 1.5);   // Rodamoinho (M51)
+const galB = galaxyDecal("assets/tex/gal_opo0328a.jpg", [0.58, -0.3, -0.76], 14, 9, 1280 / 717, 1.3);   // Sombrero (M104)
 
 const bhUniforms = {
+  uGalA: { value: galA.tex }, uGalADir: { value: galA.d }, uGalARight: { value: galA.right }, uGalAUp: { value: galA.up }, uGalAPrm: { value: galA.params },
+  uGalB: { value: galB.tex }, uGalBDir: { value: galB.d }, uGalBRight: { value: galB.right }, uGalBUp: { value: galB.up }, uGalBPrm: { value: galB.params },
+  uGalLod: { value: 0 },
   uSky: { value: skyTex },
   uSkyRot: { value: skyRot },
   uCamWorld: { value: new THREE.Matrix4() },
@@ -503,14 +523,30 @@ const blackHole = new THREE.Mesh(
       uniform mat3 uSkyRot;
       uniform mat4 uCamWorld, uProjInv, uViewProj;
       uniform vec3 uCamPos, uCenter, uDiskN, uDiskU, uDiskV;
-      uniform float uRs, uTime, uAudio, uSkyLod;
+      uniform float uRs, uTime, uAudio, uSkyLod, uGalLod;
+      uniform sampler2D uGalA, uGalB;
+      uniform vec3 uGalADir, uGalARight, uGalAUp, uGalAPrm, uGalBDir, uGalBRight, uGalBUp, uGalBPrm;
       varying vec2 vUv;
 
+      // Foto de galáxia projetada num pedaço do céu (projeção gnomônica)
+      vec3 galaxy(sampler2D tex, vec3 d, vec3 dir, vec3 right, vec3 up, vec3 prm) {
+        float c = dot(d, dir);
+        if (c < 0.6) return vec3(0.0);
+        vec2 l = vec2(dot(d, right), dot(d, up)) / c / prm.x;
+        vec2 uv = vec2(l.x, l.y * prm.y) * 0.5 + 0.5;
+        if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return vec3(0.0);
+        float mask = smoothstep(1.0, 0.55, length(vec2(l.x, l.y * prm.y)));
+        vec3 g = max(textureLod(tex, uv, uGalLod).rgb - 0.04, 0.0);
+        return g * g * 1.6 * mask * prm.z;
+      }
+
       vec3 sky(vec3 d) {
+        vec3 gal = galaxy(uGalA, d, uGalADir, uGalARight, uGalAUp, uGalAPrm)
+                 + galaxy(uGalB, d, uGalBDir, uGalBRight, uGalBUp, uGalBPrm);
         d = uSkyRot * d;
         vec2 uv = vec2(atan(d.z, d.x) / 6.2831853 + 0.5, asin(clamp(d.y, -1.0, 1.0)) / 3.14159265 + 0.5);
         vec3 c = textureLod(uSky, uv, uSkyLod).rgb;
-        return c * 2.6 + c * c * 3.0;   // realça a faixa da Via Láctea sem estourar o céu escuro
+        return c * 2.6 + c * c * 3.0 + gal;   // realça a faixa da Via Láctea sem estourar o céu escuro
       }
 
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -637,7 +673,7 @@ function addPlanet({ tex, r, orbit, speed, tilt = 0, ring, moon, phase }) {
   const pivot = new THREE.Group();
   const mesh = new THREE.Mesh(
     new THREE.SphereGeometry(r, 96, 48),
-    new THREE.MeshStandardMaterial({ map: loadTex(tex), roughness: 1, metalness: 0 })
+    new THREE.MeshStandardMaterial({ map: loadTex(tex), roughness: 1, metalness: 0, envMapIntensity: 0.12 })
   );
   mesh.rotation.z = tilt;
   pivot.add(mesh);
@@ -669,7 +705,7 @@ addPlanet({ tex: "assets/tex/2k_jupiter.jpg", r: 1.3, orbit: 19, speed: 0.028, t
 
 // --- Cinturão com asteroides reais escaneados pela NASA ---
 // flatShading: as normais vêm do próprio triângulo, então triângulos degenerados dos STL da NASA não geram NaN
-const rockMat = new THREE.MeshStandardMaterial({ color: 0x8c8078, roughness: 1, metalness: 0, flatShading: true });
+const rockMat = new THREE.MeshStandardMaterial({ color: 0x8c8078, roughness: 1, metalness: 0, flatShading: true, envMapIntensity: 0.1 });
 const belt = new THREE.Group();
 belt.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), diskN);
 bhRoot.add(belt);
@@ -714,6 +750,38 @@ new GLTFLoader().load("assets/models/bennu.glb", (gltf) => {
   bhRoot.add(bennu);
 });
 
+// Reflexos das naves: ambiente gerado da própria foto da Via Láctea
+texLoader.manager.onLoad = () => {
+  if (scene.environment) return;
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromEquirectangular(skyTex).texture;
+  pmrem.dispose();
+};
+
+// Naves reais (modelos da NASA): Voyager atravessando a cena e o James Webb estacionado ao longe
+// os modelos de naves da NASA vêm comprimidos com Draco
+const draco = new DRACOLoader().setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/gltf/");
+const craftLoader = new GLTFLoader().setDRACOLoader(draco);
+function loadCraft(path, size, onReady) {
+  craftLoader.load(path, (gltf) => {
+    const model = gltf.scene;
+    const box = new THREE.Box3().setFromObject(model);
+    model.position.sub(box.getCenter(new THREE.Vector3()));
+    const holder = new THREE.Group();
+    holder.add(model);
+    holder.scale.setScalar(size / box.getSize(new THREE.Vector3()).length());
+    model.traverse((o) => { if (o.isMesh && o.material) o.material.envMapIntensity = 0.9; });
+    onReady(holder);
+  });
+}
+let voyager = null, webb = null;
+loadCraft("assets/models/voyager.glb", 1.1, (m) => { voyager = m; scene.add(m); });
+loadCraft("assets/models/webb.glb", 1.4, (m) => { webb = m; m.position.set(5.2, 3.4, -4); bhRoot.add(m); });
+// Uma luz fria "da galáxia" para as naves não ficarem só com a luz do disco
+const rim = new THREE.DirectionalLight(0x9fb4ff, 0.6);
+rim.position.set(-5, 6, 4);
+scene.add(rim);
+
 const dummy = new THREE.Object3D();
 function updateWorld(t, dt, energy) {
   const sc = innerWidth < 700 ? 0.75 : 1;
@@ -732,6 +800,8 @@ function updateWorld(t, dt, energy) {
   // quantos texels do céu cabem num pixel da tela -> nível de mipmap
   const texelsPerPixel = (THREE.MathUtils.degToRad(camera.fov) / renderer.domElement.height) * (8192 / (2 * Math.PI));
   bhUniforms.uSkyLod.value = Math.max(0, Math.log2(texelsPerPixel));
+  const galTexels = (THREE.MathUtils.degToRad(camera.fov) / renderer.domElement.height) * (1280 / THREE.MathUtils.degToRad(galA.halfDeg * 2));
+  bhUniforms.uGalLod.value = Math.max(0, Math.log2(galTexels));
 
   planets.forEach((p) => {
     const u = p.userData;
@@ -759,6 +829,13 @@ function updateWorld(t, dt, energy) {
   });
 
   if (bennu) { bennu.rotation.y += dt * 0.15; bennu.rotation.x = 0.4 + Math.sin(t * 0.2) * 0.1; }
+  if (voyager) {
+    // passa devagar da esquerda para a direita, em primeiro plano, e recomeça (ciclo de 70 s)
+    const k = (t % 70) / 70;
+    voyager.position.set(THREE.MathUtils.lerp(-11, 13, k), -2.2 + Math.sin(k * Math.PI) * 1.2, THREE.MathUtils.lerp(1.5, -1, k));
+    voyager.rotation.set(0.3 + t * 0.03, t * 0.07, 0.15);
+  }
+  if (webb) { webb.lookAt(bhUniforms.uCenter.value); webb.rotateY(Math.PI / 2); webb.position.y = 3.4 + Math.sin(t * 0.3) * 0.15; }
   bhLight.intensity = 70 + energy * 70;
 }
 
@@ -768,6 +845,26 @@ composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.35, 0.2, 0.85);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
+// Acabamento de filme: aberração cromática, vinheta, grão e faixas pretas (no modo "ver o fundo")
+const film = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uBars: { value: 0 }, uAspect: { value: 1 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform float uTime, uBars, uAspect; varying vec2 vUv;
+    float rnd(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233)) + uTime * 7.13) * 43758.5453); }
+    void main() {
+      vec2 c = vUv - 0.5;
+      vec2 off = c * 0.016 * dot(c, c);
+      vec3 col = vec3(texture2D(tDiffuse, vUv + off).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - off).b);
+      float vig = smoothstep(0.95, 0.3, length(c * vec2(uAspect, 1.0)) / max(uAspect, 1.0) * 1.1);
+      col *= mix(1.0, vig, 0.55);
+      col += (rnd(vUv) - 0.5) * 0.035;
+      float bar = 0.1 * uBars;
+      col *= step(bar, vUv.y) * step(vUv.y, 1.0 - bar);
+      gl_FragColor = vec4(col, 1.0);
+    }`,
+});
+composer.addPass(film);
 
 // Ajusta o tamanho sempre que a janela mudar (inclusive se a página abriu com tamanho zero)
 const lastSize = new THREE.Vector2();
@@ -821,6 +918,9 @@ function loop() {
   bhRoot.position.x += (tx - bhRoot.position.x) * 0.05;
 
   bloom.strength = 0.3 + beat * 0.35;
+  film.uniforms.uTime.value = t;
+  film.uniforms.uBars.value = view;
+  film.uniforms.uAspect.value = innerWidth / Math.max(1, innerHeight);
 
   // Parallax do mouse + intro
   const mx = (cx / innerWidth - 0.5), my = (cy / innerHeight - 0.5);
