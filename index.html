@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Perfil</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="config.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="bg"></canvas>
+  <div class="scanlines"></div>
+  <div class="vignette"></div>
+  <div id="cursor"></div>
+  <div id="cursor-ring"></div>
+
+  <!-- Tela de entrada (necessária para liberar o áudio) -->
+  <div id="enter">
+    <div class="enter-inner">
+      <h1 class="glitch" id="enter-name" data-text="">...</h1>
+      <p class="enter-hint">[ clique para entrar ]</p>
+    </div>
+  </div>
+
+  <button id="view-btn" class="view-btn hidden" aria-label="Ver o fundo" title="Ver o fundo (H)">
+    <svg id="icon-eye" viewBox="0 0 24 24"><path d="M12 5C6.5 5 2.7 9.4 1.5 12c1.2 2.6 5 7 10.5 7s9.3-4.4 10.5-7C21.3 9.4 17.5 5 12 5zm0 11.5a4.5 4.5 0 110-9 4.5 4.5 0 010 9zm0-2.5a2 2 0 100-4 2 2 0 000 4z"/></svg>
+    <svg id="icon-card" class="hidden" viewBox="0 0 24 24"><path d="M12 2a5 5 0 015 5 5 5 0 01-5 5 5 5 0 01-5-5 5 5 0 015-5zm0 12c5.5 0 9 2.5 9 5v3H3v-3c0-2.5 3.5-5 9-5z"/></svg>
+    <span id="view-label">ver o fundo</span>
+  </button>
+
+  <main id="app" class="hidden">
+    <section class="card tilt" id="profile-card">
+      <div class="card-glow"></div>
+
+      <div class="avatar-wrap">
+        <div class="avatar-ring"></div>
+        <div class="avatar" id="avatar"></div>
+        <span class="status-dot" id="status-dot" title="offline"></span>
+      </div>
+
+      <h1 class="name glitch" id="name" data-text=""></h1>
+      <p class="tag" id="tag"></p>
+      <p class="typer"><span id="typer"></span><span class="caret">_</span></p>
+
+      <div class="badges" id="badges"></div>
+      <p class="bio" id="bio"></p>
+
+      <div class="presence hidden" id="presence">
+        <div class="presence-img" id="presence-img"></div>
+        <div class="presence-text">
+          <span class="presence-label" id="presence-label"></span>
+          <strong id="presence-title"></strong>
+          <span id="presence-sub"></span>
+        </div>
+      </div>
+
+      <div class="links" id="links"></div>
+
+      <div class="featured hidden" id="featured-wrap">
+        <h2>// em destaque</h2>
+        <div id="featured"></div>
+      </div>
+
+      <div class="player">
+        <button class="play-btn" id="play-btn" aria-label="Tocar/pausar">
+          <svg id="icon-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+          <svg id="icon-play" class="hidden" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg>
+        </button>
+        <div class="track">
+          <div class="marquee"><span id="track-name"></span></div>
+          <canvas id="viz" width="400" height="40"></canvas>
+        </div>
+        <input type="range" id="volume" min="0" max="1" step="0.01" value="0.5" aria-label="Volume" />
+      </div>
+    </section>
+
+    <footer>feito com ♥ · <span id="year"></span></footer>
+  </main>
+
+  <div id="toast"></div>
+  <audio id="audio" loop preload="auto"></audio>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
