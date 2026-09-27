@@ -533,15 +533,27 @@ const blackHole = new THREE.Mesh(
       }
 
       // Disco fino: perfil de temperatura de Shakura-Sunyaev + Doppler relativístico + redshift gravitacional
-      vec4 disk(vec3 p, float r, vec3 rayDir) {
-        float x = dot(p, uDiskU), y = dot(p, uDiskV);
-        float omega = 1.4 / pow(r, 1.5);                     // rotação kepleriana (mais rápido perto do buraco)
-        float a = -uTime * omega * (1.0 + uAudio * 0.6);
-        vec2 q = mat2(cos(a), -sin(a), sin(a), cos(a)) * vec2(x, y);
+      // Padrão do gás num ponto do plano do disco já girado
+      float gas(vec2 q, float r) {
         float warp = fbm(q * 0.9);
         float rings = fbm(vec2(r * 3.2 + warp * 2.5, warp));
-        float turb = fbm(q * 2.4 + warp);
-        float dens = (0.2 + 1.1 * rings * turb) * smoothstep(3.0, 3.4, r) * smoothstep(12.0, 6.5, r);
+        float clumps = fbm(q * 2.6 + warp);
+        return rings * clumps;
+      }
+
+      vec4 disk(vec3 p, float r, vec3 rayDir) {
+        vec2 xy = vec2(dot(p, uDiskU), dot(p, uDiskV));
+        // Rotação kepleriana (mais rápido perto do buraco). Duas camadas defasadas meio ciclo se
+        // revezam: cada uma "reinicia" só quando está invisível, então o gás gira sem nunca enrolar/travar.
+        float omega = 4.0 / pow(r, 1.5) * (1.0 + uAudio * 0.5);
+        const float PERIOD = 7.0;
+        float ph1 = fract(uTime / PERIOD), ph2 = fract(uTime / PERIOD + 0.5);
+        float a1 = -omega * ph1 * PERIOD, a2 = -omega * ph2 * PERIOD;
+        vec2 q1 = mat2(cos(a1), -sin(a1), sin(a1), cos(a1)) * xy;
+        vec2 q2 = mat2(cos(a2), -sin(a2), sin(a2), cos(a2)) * xy + vec2(17.3, -9.1);
+        float w1 = 1.0 - abs(ph1 * 2.0 - 1.0);
+        float pattern = gas(q1, r) * w1 + gas(q2, r) * (1.0 - w1);
+        float dens = (0.2 + 1.1 * pattern) * smoothstep(3.0, 3.4, r) * smoothstep(12.0, 6.5, r);
 
         float prof = pow(r / 3.0, -0.75) * pow(max(1.0 - sqrt(3.0 / r), 0.0), 0.25) / 0.49;
         vec3 vdir = normalize(cross(uDiskN, p));
