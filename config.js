@@ -7,13 +7,19 @@ window.PROFILE = {
   // Foto do avatar (baixada do seu Roblox). Deixe "" para usar o avatar do Discord (se discordId estiver preenchido)
   avatar: "assets/avatar.png",
   // Frases que ficam "digitando" embaixo do nome
-  roles: ["Jester", "HR", "Vida complicado"],
-  // Etiquetas/cargos que aparecem como badges
+  roles: ["Jester", "HR", "Programador", "Criador de conteúdo", "Vida complicado"],
+  // Etiquetas/cargos que aparecem como badges (tip = balão ao passar o mouse)
   badges: [
-    { label: "Jester", icon: "🃏" },
-    { label: "HR", icon: "👑" },
-    { label: "Roblox", icon: "🎮" },
+    { label: "Jester", icon: "🃏", tip: "o bobo da corte" },
+    { label: "HR", icon: "👑", tip: "cuido da staff" },
+    { label: "Programador", icon: "💻", tip: "escrevo código" },
+    { label: "Criador de conteúdo", icon: "🎥", tip: "faço vídeos e posts" },
+    { label: "Roblox", icon: "🎮", tip: "sempre online no Roblox" },
   ],
+  // Emojis que explodem quando clicam no avatar
+  burst: ["🃏", "👑", "💻", "🎥", "🎮", "✨", "🌌"],
+  // Fuso horário do relógio ("que horas são aqui")
+  timezone: "America/Sao_Paulo",
   bio: "Me acha nas plataformas aí embaixo.",
 
   // ID do seu usuário no Discord (Configurações > Avançado > Modo desenvolvedor > clique direito no seu perfil > Copiar ID)

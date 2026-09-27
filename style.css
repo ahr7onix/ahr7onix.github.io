@@ -186,13 +186,13 @@ main {
   display: flex; align-items: center; gap: 10px; padding: 12px;
   border-radius: 14px; text-decoration: none; color: var(--text); text-align: left;
   background: rgba(255,255,255,.04); border: 1px solid var(--border);
-  opacity: 0; transform: translateY(20px);
-  animation: pop .6s cubic-bezier(.2,.9,.2,1) forwards;
+  animation: enter .6s cubic-bezier(.2,.9,.2,1) backwards;
   transition: transform .25s, border-color .25s, box-shadow .25s, background .25s;
   font: inherit; cursor: inherit;
 }
 .link:last-child:nth-child(odd) { grid-column: 1 / -1; }
 @keyframes pop { to { opacity: 1; transform: none; } }
+@keyframes enter { from { opacity: 0; transform: translateY(20px); } }
 .link::after {
   content: ""; position: absolute; inset: 0;
   background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,.18), transparent 70%);
@@ -272,7 +272,7 @@ footer { margin-top: 20px; font-size: .75rem; color: var(--muted); letter-spacin
   color: var(--text); background: rgba(10, 6, 20, .55);
   border: 1px solid var(--border); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   transition: background .25s, box-shadow .25s, transform .25s;
-  animation: pop .6s .8s cubic-bezier(.2,.9,.2,1) both;
+  animation: enter .6s .8s cubic-bezier(.2,.9,.2,1) backwards;
 }
 .view-btn:hover {
   transform: translateY(-2px);
@@ -289,6 +289,43 @@ body.view-mode .scanlines { opacity: .4; }
 
 /* player do YouTube fica escondido, só o som toca */
 #yt-box { position: fixed; left: -300px; bottom: 0; width: 200px; height: 200px; opacity: 0; pointer-events: none; }
+
+.badge { position: relative; animation: enter .5s cubic-bezier(.2,.9,.2,1) backwards; }
+.badge[data-tip]::after {
+  content: attr(data-tip); position: absolute; left: 50%; bottom: calc(100% + 8px);
+  transform: translate(-50%, 6px); opacity: 0; pointer-events: none; white-space: nowrap;
+  padding: 5px 10px; border-radius: 8px; font-size: .72rem; font-weight: 500;
+  background: #0d0818; border: 1px solid var(--border); color: var(--text);
+  box-shadow: 0 6px 20px rgba(0,0,0,.5); transition: opacity .2s, transform .2s; z-index: 5;
+}
+.badge[data-tip]:hover::after { opacity: 1; transform: translate(-50%, 0); }
+
+.clock { margin-top: 12px; font-size: .8rem; color: var(--muted); display: flex; align-items: center; justify-content: center; gap: 6px; }
+.clock-dot { width: 7px; height: 7px; border-radius: 50%; background: #23a55a; box-shadow: 0 0 8px #23a55a; animation: blink 2s ease-in-out infinite; }
+
+.avatar { cursor: inherit; transition: transform .2s; }
+.avatar:active { transform: scale(.92); }
+
+.burst {
+  position: fixed; z-index: 70; pointer-events: none; font-size: 1.6rem;
+  transform: translate(-50%, -50%);
+  animation: burst 1.1s cubic-bezier(.15,.8,.3,1) forwards;
+}
+@keyframes burst {
+  to { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--rot)) scale(.4); opacity: 0; }
+}
+.spark {
+  position: fixed; z-index: 9998; pointer-events: none; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 8px var(--accent), 0 0 14px var(--accent2);
+  transform: translate(-50%, -50%);
+  animation: spark .7s ease-out forwards;
+}
+@keyframes spark { to { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0); opacity: 0; } }
+
+body.chaos #bg { animation: chaos-hue 1.2s linear infinite; }
+body.chaos .card { animation: chaos-spin 1.2s cubic-bezier(.5,0,.2,1) 2; }
+@keyframes chaos-hue { to { filter: hue-rotate(360deg) saturate(1.6); } }
+@keyframes chaos-spin { 50% { transform: rotateY(180deg) scale(.9); } to { transform: rotateY(360deg); } }
 
 /* ---------- toast ---------- */
 #toast {

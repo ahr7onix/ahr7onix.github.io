@@ -35,6 +35,8 @@ P.badges.forEach((b) => {
   const el = document.createElement("span");
   el.className = "badge";
   el.textContent = `${b.icon || ""} ${b.label}`.trim();
+  if (b.tip) el.dataset.tip = b.tip;
+  el.style.animationDelay = `${0.2 + $("badges").children.length * 0.07}s`;
   $("badges").appendChild(el);
 });
 
@@ -99,6 +101,69 @@ const cur = $("cursor"), ring = $("cursor-ring");
 let cx = innerWidth / 2, cy = innerHeight / 2, rx = cx, ry = cy;
 addEventListener("mousemove", (e) => { cx = e.clientX; cy = e.clientY; });
 document.addEventListener("mouseover", (e) => ring.classList.toggle("hover", !!e.target.closest("a,button,.badge,input")));
+
+// Relógio: que horas são aqui
+function tickClock() {
+  const tz = P.timezone || "America/Sao_Paulo";
+  const time = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: tz });
+  const h = +new Date().toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: tz });
+  const mood = h < 6 ? "provavelmente acordado de madrugada 🌙" : h < 12 ? "bom dia ☀️" : h < 18 ? "boa tarde 🌤️" : "boa noite 🌃";
+  $("clock").textContent = `${time} aqui · ${mood}`;
+}
+tickClock();
+setInterval(tickClock, 15000);
+
+// Clique no avatar: explosão de emojis + pulso de supernova no buraco negro
+let boost = 0;
+$("avatar").addEventListener("click", (e) => {
+  const r = $("avatar").getBoundingClientRect();
+  const ox = r.left + r.width / 2, oy = r.top + r.height / 2;
+  const list = P.burst || ["✨"];
+  for (let i = 0; i < 22; i++) {
+    const s = document.createElement("span");
+    s.className = "burst";
+    s.textContent = list[i % list.length];
+    const ang = (i / 22) * Math.PI * 2 + Math.random() * 0.3, dist = 90 + Math.random() * 140;
+    s.style.left = `${ox}px`; s.style.top = `${oy}px`;
+    s.style.setProperty("--dx", `${Math.cos(ang) * dist}px`);
+    s.style.setProperty("--dy", `${Math.sin(ang) * dist}px`);
+    s.style.setProperty("--rot", `${(Math.random() - 0.5) * 720}deg`);
+    document.body.appendChild(s);
+    setTimeout(() => s.remove(), 1100);
+  }
+  boost = 1;
+});
+
+// Rastro de faíscas no cursor (só com mouse)
+if (matchMedia("(pointer: fine)").matches) {
+  let last = 0;
+  addEventListener("mousemove", (e) => {
+    const now = performance.now();
+    if (now - last < 28) return;
+    last = now;
+    const d = document.createElement("span");
+    d.className = "spark";
+    d.style.left = `${e.clientX}px`; d.style.top = `${e.clientY}px`;
+    d.style.setProperty("--dx", `${(Math.random() - 0.5) * 30}px`);
+    d.style.setProperty("--dy", `${10 + Math.random() * 25}px`);
+    document.body.appendChild(d);
+    setTimeout(() => d.remove(), 700);
+  });
+}
+
+// Easter egg: digitar "jester" ativa o modo caos
+let typed = "";
+addEventListener("keydown", (e) => {
+  if (e.target.closest?.("input") || e.key.length !== 1) return;
+  typed = (typed + e.key.toLowerCase()).slice(-6);
+  if (typed === "jester" && !document.body.classList.contains("chaos")) {
+    typed = "";
+    document.body.classList.add("chaos");
+    toast("🃏 MODO CAOS ATIVADO");
+    boost = 1.4;
+    setTimeout(() => document.body.classList.remove("chaos"), 6000);
+  }
+});
 
 // 3D tilt on card
 const card = $("profile-card");
@@ -833,6 +898,9 @@ function loop() {
     for (let i = 0; i < 8; i++) bass += freq[i];
     level = bass / (8 * 255);
   }
+  level = Math.max(level, boost);
+  boost *= 0.96;
+  if (document.body.classList.contains("chaos")) level = Math.max(level, 0.6 + 0.4 * Math.sin(t * 12));
   beat += (level - beat) * 0.25;
   root.style.setProperty("--beat", beat.toFixed(3));
   drawViz(bins);
